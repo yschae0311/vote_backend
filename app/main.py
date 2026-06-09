@@ -1,0 +1,46 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
+from app.config import get_settings
+from app.database import Base, SessionLocal, engine
+from app.routers import admin, polls
+from app.seed import seed_database
+
+settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    Base.metadata.create_all(bind=engine)
+    settings.media_path.mkdir(parents=True, exist_ok=True)
+    db = SessionLocal()
+    try:
+        seed_database(db)
+    finally:
+        db.close()
+    yield
+
+
+app = FastAPI(title="Vote Platform API", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(polls.router)
+app.include_router(admin.router)
+
+if settings.media_path.exists():
+    app.mount("/media", StaticFiles(directory=str(settings.media_path)), name="media")
+
+
+@app.get("/health")
+def health() -> dict:
+    return {"status": "ok"}
