@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -39,10 +39,8 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-api = APIRouter(prefix="/api")
-api.include_router(polls.router)
-api.include_router(admin.router)
-app.include_router(api)
+app.include_router(polls.router)
+app.include_router(admin.router)
 
 if settings.media_path.exists():
     app.mount("/media", StaticFiles(directory=str(settings.media_path)), name="media")
