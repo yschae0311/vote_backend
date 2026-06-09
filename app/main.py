@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -34,13 +34,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(polls.router)
-app.include_router(admin.router)
+@app.get("/health")
+def health() -> dict:
+    return {"status": "ok"}
+
+
+api = APIRouter(prefix="/api")
+api.include_router(polls.router)
+api.include_router(admin.router)
+app.include_router(api)
 
 if settings.media_path.exists():
     app.mount("/media", StaticFiles(directory=str(settings.media_path)), name="media")
 
-
-@app.get("/health")
-def health() -> dict:
-    return {"status": "ok"}
+frontend_dist = settings.frontend_dist_path
+if frontend_dist and frontend_dist.is_dir():
+    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")

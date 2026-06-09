@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     admin_password: str = "admin123"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     media_dir: str = "./uploads"
+    frontend_dist: str | None = None
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+    aws_region: str = "ap-northeast-2"
+    s3_bucket: str | None = None
+    s3_key_prefix: str = "vote"
+    cloudfront_url: str | None = None
     access_token_expire_minutes: int = 60 * 24
     seed_mock_data: bool | None = None
 
@@ -27,8 +34,23 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
+    def s3_enabled(self) -> bool:
+        return bool(
+            self.s3_bucket
+            and self.aws_access_key_id
+            and self.aws_secret_access_key
+            and self.cloudfront_url
+        )
+
+    @property
     def media_path(self) -> Path:
         return Path(self.media_dir)
+
+    @property
+    def frontend_dist_path(self) -> Path | None:
+        if not self.frontend_dist:
+            return None
+        return Path(self.frontend_dist)
 
 
 @lru_cache

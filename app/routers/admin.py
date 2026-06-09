@@ -11,7 +11,15 @@ from app.auth.jwt import create_access_token, hash_password, verify_password
 from app.config import get_settings
 from app.database import get_db
 from app.models import Admin, Ballot, Candidate, Poll
-from app.schemas.admin import LoginRequest, ResetVotesResponse, TokenResponse, UploadResponse
+from app.schemas.admin import (
+    LoginRequest,
+    PresignRequest,
+    PresignResponse,
+    ResetVotesResponse,
+    TokenResponse,
+    UploadResponse,
+)
+from app.services.s3_service import create_presigned_upload, delete_media_file
 from app.schemas.poll import (
     CandidateCreate,
     CandidateOut,
@@ -201,6 +209,7 @@ def delete_candidate(
     )
     if not cand:
         raise HTTPException(status_code=404, detail="Candidate not found")
+    delete_media_file(settings, cand.image_url)
     db.delete(cand)
     db.commit()
 
@@ -247,11 +256,28 @@ def poll_results_csv(
     return PlainTextResponse(content, media_type="text/csv")
 
 
+@router.post("/upload/presign", response_model=PresignResponse)
+def presign_upload(
+    body: PresignRequest,
+    _admin: Admin = Depends(get_current_admin),
+) -> PresignResponse:
+    if not settings.s3_enabled:
+        raise HTTPException(status_code=503, detail="S3 upload is not configured")
+    content_type = body.content_type if body.content_type.startswith("image/") else "image/jpeg"
+    result = create_presigned_upload(settings, body.filename, content_type)
+    return PresignResponse(**result)
+
+
 @router.post("/upload/image", response_model=UploadResponse)
 async def upload_image(
     file: UploadFile = File(...),
     _admin: Admin = Depends(get_current_admin),
 ) -> UploadResponse:
+    if settings.s3_enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="Use POST /api/admin/upload/presign for S3 uploads",
+        )
     media = settings.media_path
     media.mkdir(parents=True, exist_ok=True)
     ext = Path(file.filename or "img.jpg").suffix or ".jpg"
