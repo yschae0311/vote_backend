@@ -156,7 +156,7 @@ def verify_voter(
     name: str | None,
     email: str | None,
     phone: str | None,
-) -> tuple[str, str]:
+) -> tuple[str, str, bool]:
     if poll.poll_type != "restricted":
         raise HTTPException(status_code=400, detail="This poll does not require verification")
 
@@ -172,11 +172,9 @@ def verify_voter(
         raise HTTPException(status_code=403, detail="입력한 정보가 여러 대상자와 일치합니다. 운영팀에 문의해주세요.")
 
     voter = matched[0]
-    if resolve_voter_ballot(db, poll.id, voter, voters):
-        raise HTTPException(status_code=409, detail="이미 투표를 완료했습니다.")
-
+    already_voted = resolve_voter_ballot(db, poll.id, voter, voters) is not None
     token = create_voter_token(poll.id, voter.id)
-    return token, _display_name(voter, fields)
+    return token, _display_name(voter, fields), already_voted
 
 
 def decode_voter_for_poll(token: str, poll_id: int) -> int:

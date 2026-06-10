@@ -47,8 +47,8 @@ def get_poll_results_public(poll_id: int, db: Session = Depends(get_db)) -> Resu
 @router.get("/{poll_id}", response_model=PollOut)
 def get_poll(poll_id: int, db: Session = Depends(get_db)) -> Poll:
     poll = _get_poll_or_404(db, poll_id)
-    if poll.status != "active":
-        raise HTTPException(status_code=403, detail="Poll is not available for voting")
+    if poll.status not in ("active", "closed"):
+        raise HTTPException(status_code=403, detail="Poll is not available")
     return poll
 
 
@@ -59,12 +59,16 @@ def verify_poll_voter(
     db: Session = Depends(get_db),
 ) -> VerifyVoterResponse:
     poll = _get_poll_or_404(db, poll_id)
-    if poll.status != "active":
-        raise HTTPException(status_code=403, detail="Poll is not available for voting")
-    token, voter_name = verify_voter(
+    if poll.status not in ("active", "closed"):
+        raise HTTPException(status_code=403, detail="Poll is not available")
+    token, voter_name, already_voted = verify_voter(
         db, poll, name=body.name, email=body.email, phone=body.phone
     )
-    return VerifyVoterResponse(voter_token=token, voter_name=voter_name)
+    return VerifyVoterResponse(
+        voter_token=token,
+        voter_name=voter_name,
+        already_voted=already_voted,
+    )
 
 
 @router.get("/{poll_id}/check", response_model=CheckResponse)

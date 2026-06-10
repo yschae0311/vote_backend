@@ -79,6 +79,7 @@ class VerifyVoterRequest(BaseModel):
 class VerifyVoterResponse(BaseModel):
     voter_token: str
     voter_name: str
+    already_voted: bool = False
 
 
 class CheckResponse(BaseModel):
