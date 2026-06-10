@@ -11,6 +11,7 @@ from typing import Any, AsyncIterator
 logger = logging.getLogger(__name__)
 
 _redis = None
+_main_loop: asyncio.AbstractEventLoop | None = None
 _local_queues: dict[int, list[asyncio.Queue[dict[str, Any]]]] = defaultdict(list)
 _local_lock = asyncio.Lock()
 
@@ -20,7 +21,8 @@ def _channel(poll_id: int) -> str:
 
 
 async def init_event_bus(redis_url: str | None) -> None:
-    global _redis
+    global _redis, _main_loop
+    _main_loop = asyncio.get_running_loop()
     if not redis_url:
         logger.info("REDIS_URL not set — poll events use in-memory pub/sub (single worker only)")
         return
@@ -37,10 +39,11 @@ async def init_event_bus(redis_url: str | None) -> None:
 
 
 async def close_event_bus() -> None:
-    global _redis
+    global _redis, _main_loop
     if _redis is not None:
         await _redis.aclose()
         _redis = None
+    _main_loop = None
 
 
 async def publish_poll_event(poll_id: int, event_type: str, **payload: Any) -> None:
@@ -58,11 +61,17 @@ async def publish_poll_event(poll_id: int, event_type: str, **payload: Any) -> N
 
 
 def schedule_poll_event(poll_id: int, event_type: str, **payload: Any) -> None:
+    coro = publish_poll_event(poll_id, event_type, **payload)
     try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
+        asyncio.get_running_loop().create_task(coro)
         return
-    loop.create_task(publish_poll_event(poll_id, event_type, **payload))
+    except RuntimeError:
+        pass
+
+    if _main_loop is None or not _main_loop.is_running():
+        logger.warning("Poll event dropped (%s poll_id=%s): event loop unavailable", event_type, poll_id)
+        return
+    asyncio.run_coroutine_threadsafe(coro, _main_loop)
 
 
 async def subscribe_poll_events(poll_id: int) -> AsyncIterator[dict[str, Any]]:
