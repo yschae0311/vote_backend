@@ -1,29 +1,82 @@
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import Ballot, Candidate, Poll, VoteItem
+from app.models import Ballot, EligibleVoter, Poll, VoteItem
 from app.schemas.poll import CheckResponse, VoteEntry, VoteSubmit
+from app.services.poll_notify import notify_results_updated
+from app.services.eligibility_service import (
+    _voter_fingerprint,
+    decode_voter_for_poll,
+    require_active_voter,
+    resolve_voter_ballot,
+)
 
 
-def _validate_votes(votes: list[VoteEntry], candidate_ids: set[int]) -> None:
+def _validate_votes(votes: list[VoteEntry], candidate_ids: set[int], max_selections: int) -> None:
+    if len(votes) < 1 or len(votes) > max_selections:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Select between 1 and {max_selections} candidate(s)",
+        )
+
     ranks = [v.rank for v in votes]
     cids = [v.candidate_id for v in votes]
     if len(set(ranks)) != len(ranks):
         raise HTTPException(status_code=400, detail="Duplicate ranks")
     if len(set(cids)) != len(cids):
         raise HTTPException(status_code=400, detail="Duplicate candidates")
+
     for v in votes:
+        if v.rank < 1 or v.rank > max_selections:
+            raise HTTPException(status_code=400, detail=f"Rank must be between 1 and {max_selections}")
         if v.candidate_id not in candidate_ids:
             raise HTTPException(status_code=400, detail=f"Invalid candidate_id: {v.candidate_id}")
 
 
-def check_vote(db: Session, poll_id: int, fingerprint: str) -> CheckResponse:
-    ballot = (
+def _ballot_for_voter(db: Session, poll: Poll, voter: EligibleVoter) -> Ballot | None:
+    ballot = resolve_voter_ballot(db, poll.id, voter)
+    if not ballot:
+        return None
+    return (
         db.query(Ballot)
         .options(joinedload(Ballot.items))
-        .filter(Ballot.poll_id == poll_id, Ballot.fingerprint == fingerprint)
+        .filter(Ballot.id == ballot.id)
         .first()
     )
+
+
+def check_vote(
+    db: Session,
+    poll: Poll,
+    fingerprint: str,
+    voter_token: str | None = None,
+) -> CheckResponse:
+    if poll.poll_type == "restricted":
+        if not voter_token:
+            return CheckResponse(voted=False)
+        voter_id = decode_voter_for_poll(voter_token, poll.id)
+        voter = (
+            db.query(EligibleVoter)
+            .filter(EligibleVoter.id == voter_id, EligibleVoter.poll_id == poll.id)
+            .first()
+        )
+        if voter:
+            ballot = _ballot_for_voter(db, poll, voter)
+        else:
+            ballot = (
+                db.query(Ballot)
+                .options(joinedload(Ballot.items))
+                .filter(Ballot.poll_id == poll.id, Ballot.eligible_voter_id == voter_id)
+                .first()
+            )
+    else:
+        ballot = (
+            db.query(Ballot)
+            .options(joinedload(Ballot.items))
+            .filter(Ballot.poll_id == poll.id, Ballot.fingerprint == fingerprint)
+            .first()
+        )
+
     if not ballot:
         return CheckResponse(voted=False)
     votes = [VoteEntry(rank=item.rank, candidate_id=item.candidate_id) for item in ballot.items]
@@ -35,18 +88,35 @@ def submit_vote(db: Session, poll: Poll, body: VoteSubmit) -> None:
     if poll.status != "active":
         raise HTTPException(status_code=403, detail="Poll is not active")
 
-    existing = (
-        db.query(Ballot)
-        .filter(Ballot.poll_id == poll.id, Ballot.fingerprint == body.fingerprint)
-        .first()
-    )
-    if existing:
-        raise HTTPException(status_code=409, detail="Already voted")
+    eligible_voter_id: int | None = None
+    fingerprint = body.fingerprint
+
+    if poll.poll_type == "restricted":
+        if not body.voter_token:
+            raise HTTPException(status_code=401, detail="투표 대상자 인증이 필요합니다.")
+        eligible_voter_id = decode_voter_for_poll(body.voter_token, poll.id)
+        voter = require_active_voter(db, poll.id, eligible_voter_id)
+        fingerprint = _voter_fingerprint(body.fingerprint, voter.id)
+        if _ballot_for_voter(db, poll, voter):
+            raise HTTPException(status_code=409, detail="Already voted")
+    else:
+        existing = (
+            db.query(Ballot)
+            .filter(Ballot.poll_id == poll.id, Ballot.fingerprint == fingerprint)
+            .first()
+        )
+        if existing:
+            raise HTTPException(status_code=409, detail="Already voted")
 
     candidate_ids = {c.id for c in poll.candidates}
-    _validate_votes(body.votes, candidate_ids)
+    max_sel = poll.max_selections or 3
+    _validate_votes(body.votes, candidate_ids, max_sel)
 
-    ballot = Ballot(poll_id=poll.id, fingerprint=body.fingerprint)
+    ballot = Ballot(
+        poll_id=poll.id,
+        fingerprint=fingerprint,
+        eligible_voter_id=eligible_voter_id,
+    )
     db.add(ballot)
     db.flush()
 
@@ -54,3 +124,4 @@ def submit_vote(db: Session, poll: Poll, body: VoteSubmit) -> None:
         db.add(VoteItem(ballot_id=ballot.id, candidate_id=v.candidate_id, rank=v.rank))
 
     db.commit()
+    notify_results_updated(poll.id)

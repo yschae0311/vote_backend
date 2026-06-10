@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,19 @@ def get_current_admin(
     if creds is None or not creds.credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     username = decode_token(creds.credentials)
+    if not username:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    admin = db.query(Admin).filter(Admin.username == username).first()
+    if not admin:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin not found")
+    return admin
+
+
+def get_current_admin_from_token(
+    token: str = Query(..., min_length=10),
+    db: Session = Depends(get_db),
+) -> Admin:
+    username = decode_token(token)
     if not username:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     admin = db.query(Admin).filter(Admin.username == username).first()

@@ -19,6 +19,7 @@ class Candidate(Base):
     team: Mapped[str | None] = mapped_column(String(200))
     tagline: Mapped[str | None] = mapped_column(String(300))
     image_url: Mapped[str | None] = mapped_column(Text)
+    figma_url: Mapped[str | None] = mapped_column(Text)
     tint: Mapped[int] = mapped_column(Integer, default=256)
     order_num: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

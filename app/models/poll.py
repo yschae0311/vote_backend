@@ -9,6 +9,7 @@ from app.database import Base
 if TYPE_CHECKING:
     from app.models.ballot import Ballot
     from app.models.candidate import Candidate
+    from app.models.eligible_voter import EligibleVoter
 
 
 class Poll(Base):
@@ -22,6 +23,9 @@ class Poll(Base):
     status: Mapped[str] = mapped_column(String(20), default="draft")  # draft | active | closed
     closes_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     eligible_count: Mapped[int] = mapped_column(Integer, default=0)
+    max_selections: Mapped[int] = mapped_column(Integer, default=3)
+    poll_type: Mapped[str] = mapped_column(String(20), default="open")  # open | restricted
+    verify_fields: Mapped[str] = mapped_column(String(50), default="name,email,phone")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -32,4 +36,7 @@ class Poll(Base):
     )
     ballots: Mapped[list["Ballot"]] = relationship(
         "Ballot", back_populates="poll", cascade="all, delete-orphan"
+    )
+    eligible_voters: Mapped[list["EligibleVoter"]] = relationship(
+        "EligibleVoter", back_populates="poll", cascade="all, delete-orphan"
     )

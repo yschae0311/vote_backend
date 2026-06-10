@@ -29,3 +29,26 @@ def decode_token(token: str) -> str | None:
         return str(sub) if sub else None
     except JWTError:
         return None
+
+
+def create_voter_token(poll_id: int, voter_id: int) -> str:
+    expire = datetime.now(UTC) + timedelta(days=7)
+    return jwt.encode(
+        {"typ": "voter", "poll_id": poll_id, "voter_id": voter_id, "exp": expire},
+        settings.secret_key,
+        algorithm=ALGORITHM,
+    )
+
+
+def decode_voter_token(token: str) -> tuple[int, int] | None:
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
+        if payload.get("typ") != "voter":
+            return None
+        poll_id = payload.get("poll_id")
+        voter_id = payload.get("voter_id")
+        if poll_id is None or voter_id is None:
+            return None
+        return int(poll_id), int(voter_id)
+    except JWTError:
+        return None

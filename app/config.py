@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     cloudfront_url: str | None = None
     access_token_expire_minutes: int = 60 * 24
     seed_mock_data: bool | None = None
+    redis_url: str | None = None
 
     @property
     def should_seed_mock_data(self) -> bool:

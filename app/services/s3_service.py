@@ -76,9 +76,29 @@ def s3_key_from_image_url(settings: Settings, image_url: str) -> str | None:
     return path or None
 
 
+def is_owned_media_url(settings: Settings, image_url: str) -> bool:
+    """우리 S3/CloudFront 또는 로컬 /media 만 True (외부 Figma URL 등은 False)."""
+    if image_url.startswith("/media/"):
+        return True
+    if not settings.s3_enabled or not settings.cloudfront_url:
+        return False
+
+    raw = image_url.strip()
+    if not raw.startswith(("http://", "https://")):
+        raw = f"https://{raw}"
+
+    cf_host = urlparse(public_media_url(settings, f"{settings.s3_key_prefix.strip('/')}/x")).netloc.lower()
+    if urlparse(raw).netloc.lower() != cf_host:
+        return False
+
+    prefix = settings.s3_key_prefix.strip("/")
+    path = urlparse(raw).path.lstrip("/")
+    return path.startswith(f"{prefix}/") if prefix else bool(path)
+
+
 def delete_media_file(settings: Settings, image_url: str | None) -> None:
     """후보 이미지 삭제 (로컬 /media 또는 S3). 실패해도 예외를 밖으로 던지지 않음."""
-    if not image_url:
+    if not image_url or not is_owned_media_url(settings, image_url):
         return
 
     try:

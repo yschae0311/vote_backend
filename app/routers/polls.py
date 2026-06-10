@@ -3,7 +3,17 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models import Poll
-from app.schemas.poll import CheckResponse, PollOut, VoteSubmit
+from app.schemas.poll import (
+    CheckResponse,
+    PollOut,
+    PollPublicOut,
+    ResultsOut,
+    VerifyVoterRequest,
+    VerifyVoterResponse,
+    VoteSubmit,
+)
+from app.services.aggregate_service import get_results
+from app.services.eligibility_service import verify_voter
 from app.services.vote_service import check_vote, submit_vote
 
 router = APIRouter(prefix="/polls", tags=["polls"])
@@ -21,6 +31,19 @@ def _get_poll_or_404(db: Session, poll_id: int) -> Poll:
     return poll
 
 
+@router.get("/{poll_id}/public", response_model=PollPublicOut)
+def get_poll_public(poll_id: int, db: Session = Depends(get_db)) -> Poll:
+    return _get_poll_or_404(db, poll_id)
+
+
+@router.get("/{poll_id}/results", response_model=ResultsOut)
+def get_poll_results_public(poll_id: int, db: Session = Depends(get_db)) -> ResultsOut:
+    poll = _get_poll_or_404(db, poll_id)
+    if poll.status != "closed":
+        raise HTTPException(status_code=403, detail="투표가 종료된 후에만 결과를 확인할 수 있습니다.")
+    return get_results(db, poll_id, poll.eligible_count)
+
+
 @router.get("/{poll_id}", response_model=PollOut)
 def get_poll(poll_id: int, db: Session = Depends(get_db)) -> Poll:
     poll = _get_poll_or_404(db, poll_id)
@@ -29,14 +52,30 @@ def get_poll(poll_id: int, db: Session = Depends(get_db)) -> Poll:
     return poll
 
 
+@router.post("/{poll_id}/verify", response_model=VerifyVoterResponse)
+def verify_poll_voter(
+    poll_id: int,
+    body: VerifyVoterRequest,
+    db: Session = Depends(get_db),
+) -> VerifyVoterResponse:
+    poll = _get_poll_or_404(db, poll_id)
+    if poll.status != "active":
+        raise HTTPException(status_code=403, detail="Poll is not available for voting")
+    token, voter_name = verify_voter(
+        db, poll, name=body.name, email=body.email, phone=body.phone
+    )
+    return VerifyVoterResponse(voter_token=token, voter_name=voter_name)
+
+
 @router.get("/{poll_id}/check", response_model=CheckResponse)
 def check_poll_vote(
     poll_id: int,
     fingerprint: str = Query(..., min_length=8, max_length=64),
+    voter_token: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> CheckResponse:
-    _get_poll_or_404(db, poll_id)
-    return check_vote(db, poll_id, fingerprint)
+    poll = _get_poll_or_404(db, poll_id)
+    return check_vote(db, poll, fingerprint, voter_token)
 
 
 @router.post("/{poll_id}/vote", status_code=201)
