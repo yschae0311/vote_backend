@@ -87,6 +87,19 @@ class CheckResponse(BaseModel):
     votes: list[VoteEntry] | None = None
 
 
+class PollPublicListItem(BaseModel):
+    id: int
+    title: str
+    category: str
+    status: str
+    candidates: int
+    max_selections: int = 3
+    poll_type: PollType = "open"
+    ballots: int
+    closes_at: datetime | None = None
+    desc: str | None = None
+
+
 class PollListItem(BaseModel):
     id: int
     title: str

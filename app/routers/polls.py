@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
-from app.models import Poll
+from app.models import Ballot, Candidate, Poll
 from app.schemas.poll import (
     CheckResponse,
     PollOut,
+    PollPublicListItem,
     PollPublicOut,
     ResultsOut,
     VerifyVoterRequest,
@@ -17,6 +19,35 @@ from app.services.eligibility_service import verify_voter
 from app.services.vote_service import check_vote, submit_vote
 
 router = APIRouter(prefix="/polls", tags=["polls"])
+
+
+@router.get("", response_model=list[PollPublicListItem])
+def list_polls_public(db: Session = Depends(get_db)) -> list[PollPublicListItem]:
+    polls = (
+        db.query(Poll)
+        .filter(Poll.status.in_(("active", "closed")))
+        .order_by(case((Poll.status == "active", 0), else_=1), Poll.created_at.desc())
+        .all()
+    )
+    items: list[PollPublicListItem] = []
+    for p in polls:
+        cand_count = db.query(func.count(Candidate.id)).filter(Candidate.poll_id == p.id).scalar() or 0
+        ballot_count = db.query(func.count(Ballot.id)).filter(Ballot.poll_id == p.id).scalar() or 0
+        items.append(
+            PollPublicListItem(
+                id=p.id,
+                title=p.title,
+                category=p.category,
+                status=p.status,
+                candidates=cand_count,
+                max_selections=p.max_selections or 3,
+                poll_type=p.poll_type or "open",
+                ballots=ballot_count,
+                closes_at=p.closes_at,
+                desc=p.description,
+            )
+        )
+    return items
 
 
 def _get_poll_or_404(db: Session, poll_id: int) -> Poll:
