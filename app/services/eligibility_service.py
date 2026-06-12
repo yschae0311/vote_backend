@@ -3,11 +3,12 @@ import re
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth.jwt import create_voter_token, decode_voter_token
+from app.auth.jwt import create_voter_token, decode_voter_token, hash_password, verify_password
 from app.models import Ballot, EligibleVoter, Poll
 from app.services.verify_fields import parse_verify_fields
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_PIN_RE = re.compile(r"^\d{4}$")
 _FIELD_LABEL = {"name": "이름", "email": "이메일", "phone": "전화번호"}
 
 
@@ -149,6 +150,12 @@ def _display_name(voter: EligibleVoter, fields: list[str]) -> str:
     return voter.name or "대상자"
 
 
+def _validate_pin(pin: str | None) -> str:
+    if not pin or not _PIN_RE.match(pin):
+        raise HTTPException(status_code=400, detail="4자리 숫자 비밀번호를 입력해주세요.")
+    return pin
+
+
 def verify_voter(
     db: Session,
     poll: Poll,
@@ -156,7 +163,8 @@ def verify_voter(
     name: str | None,
     email: str | None,
     phone: str | None,
-) -> tuple[str, str, bool]:
+    pin: str | None = None,
+) -> dict:
     if poll.poll_type != "restricted":
         raise HTTPException(status_code=400, detail="This poll does not require verification")
 
@@ -172,9 +180,36 @@ def verify_voter(
         raise HTTPException(status_code=403, detail="입력한 정보가 여러 대상자와 일치합니다. 운영팀에 문의해주세요.")
 
     voter = matched[0]
+    display = _display_name(voter, fields)
     already_voted = resolve_voter_ballot(db, poll.id, voter, voters) is not None
+    pin_setup = voter.pin_hash is None
+
+    if not pin:
+        return {
+            "verified": False,
+            "voter_token": None,
+            "voter_name": display,
+            "already_voted": already_voted,
+            "pin_required": True,
+            "pin_setup": pin_setup,
+        }
+
+    pin_value = _validate_pin(pin)
+    if pin_setup:
+        voter.pin_hash = hash_password(pin_value)
+        db.commit()
+    elif not verify_password(pin_value, voter.pin_hash or ""):
+        raise HTTPException(status_code=403, detail="비밀번호가 일치하지 않습니다.")
+
     token = create_voter_token(poll.id, voter.id)
-    return token, _display_name(voter, fields), already_voted
+    return {
+        "verified": True,
+        "voter_token": token,
+        "voter_name": display,
+        "already_voted": already_voted,
+        "pin_required": False,
+        "pin_setup": False,
+    }
 
 
 def decode_voter_for_poll(token: str, poll_id: int) -> int:

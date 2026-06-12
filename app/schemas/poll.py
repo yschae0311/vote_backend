@@ -74,12 +74,16 @@ class VerifyVoterRequest(BaseModel):
     name: str | None = Field(default=None, max_length=100)
     email: str | None = Field(default=None, max_length=200)
     phone: str | None = Field(default=None, max_length=30)
+    pin: str | None = Field(default=None, min_length=4, max_length=4)
 
 
 class VerifyVoterResponse(BaseModel):
-    voter_token: str
+    verified: bool = False
+    voter_token: str | None = None
     voter_name: str
     already_voted: bool = False
+    pin_required: bool = False
+    pin_setup: bool = False
 
 
 class CheckResponse(BaseModel):

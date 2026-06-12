@@ -97,8 +97,19 @@ def submit_vote(db: Session, poll: Poll, body: VoteSubmit) -> None:
         eligible_voter_id = decode_voter_for_poll(body.voter_token, poll.id)
         voter = require_active_voter(db, poll.id, eligible_voter_id)
         fingerprint = _voter_fingerprint(body.fingerprint, voter.id)
-        if _ballot_for_voter(db, poll, voter):
-            raise HTTPException(status_code=409, detail="Already voted")
+        existing = _ballot_for_voter(db, poll, voter)
+        if existing:
+            candidate_ids = {c.id for c in poll.candidates}
+            max_sel = poll.max_selections or 3
+            _validate_votes(body.votes, candidate_ids, max_sel)
+            for item in list(existing.items):
+                db.delete(item)
+            db.flush()
+            for v in body.votes:
+                db.add(VoteItem(ballot_id=existing.id, candidate_id=v.candidate_id, rank=v.rank))
+            db.commit()
+            notify_results_updated(poll.id)
+            return
     else:
         existing = (
             db.query(Ballot)

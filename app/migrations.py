@@ -51,6 +51,13 @@ def ensure_schema(engine: Engine) -> None:
                 conn.execute(text("ALTER TABLE ballots ADD COLUMN eligible_voter_id INTEGER"))
             logger.info("Added ballots.eligible_voter_id column")
 
+    if "eligible_voters" in tables:
+        cols = {c["name"] for c in insp.get_columns("eligible_voters")}
+        if "pin_hash" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE eligible_voters ADD COLUMN pin_hash VARCHAR(255)"))
+            logger.info("Added eligible_voters.pin_hash column")
+
 
 def migrate_figma_urls(db: Session) -> None:
     moved = 0

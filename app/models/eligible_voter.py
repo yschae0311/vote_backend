@@ -25,6 +25,7 @@ class EligibleVoter(Base):
     name_norm: Mapped[str] = mapped_column(String(100), nullable=False)
     email_norm: Mapped[str | None] = mapped_column(String(200))
     phone_norm: Mapped[str | None] = mapped_column(String(30))
+    pin_hash: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     poll: Mapped["Poll"] = relationship("Poll", back_populates="eligible_voters")

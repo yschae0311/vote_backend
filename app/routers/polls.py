@@ -92,14 +92,15 @@ def verify_poll_voter(
     poll = _get_poll_or_404(db, poll_id)
     if poll.status not in ("active", "closed"):
         raise HTTPException(status_code=403, detail="Poll is not available")
-    token, voter_name, already_voted = verify_voter(
-        db, poll, name=body.name, email=body.email, phone=body.phone
+    result = verify_voter(
+        db,
+        poll,
+        name=body.name,
+        email=body.email,
+        phone=body.phone,
+        pin=body.pin,
     )
-    return VerifyVoterResponse(
-        voter_token=token,
-        voter_name=voter_name,
-        already_voted=already_voted,
-    )
+    return VerifyVoterResponse(**result)
 
 
 @router.get("/{poll_id}/check", response_model=CheckResponse)
